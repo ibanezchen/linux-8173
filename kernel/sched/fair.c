@@ -681,6 +681,8 @@ void init_task_runnable_average(struct task_struct *p)
 	p->se.avg.runnable_avg_sum = slice;
 	p->se.avg.runnable_avg_period = slice;
 	__update_task_entity_contrib(&p->se);
+
+	p->se.avg.last_wakeup_update = jiffies;
 }
 #else
 void init_task_runnable_average(struct task_struct *p)
@@ -4359,6 +4361,21 @@ static void record_wakee(struct task_struct *p)
 	}
 }
 
+static void update_wakeup_avg(struct task_struct *p)
+{
+	struct sched_entity *se = &p->se;
+	struct sched_avg *sa = &se->avg;
+	unsigned long now = ACCESS_ONCE(jiffies);
+
+	if (time_after(now, sa->last_wakeup_update)) {
+		sa->wakeup_avg_sum = decay_load(sa->wakeup_avg_sum,
+				jiffies_to_msecs(now - sa->last_wakeup_update));
+		sa->last_wakeup_update = now;
+	}
+
+	sa->wakeup_avg_sum += 1024;
+}
+
 static void task_waking_fair(struct task_struct *p)
 {
 	struct sched_entity *se = &p->se;
@@ -4379,6 +4396,7 @@ static void task_waking_fair(struct task_struct *p)
 
 	se->vruntime -= min_vruntime;
 	record_wakee(p);
+	update_wakeup_avg(p);
 }
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
