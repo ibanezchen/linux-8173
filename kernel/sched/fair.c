@@ -7925,7 +7925,18 @@ void init_cfs_rq(struct cfs_rq *cfs_rq)
 	atomic64_set(&cfs_rq->decay_counter, 1);
 	atomic_long_set(&cfs_rq->removed_load, 0);
 	atomic_long_set(&cfs_rq->uw_removed_load, 0);
+	atomic_long_set(&cfs_rq->curr_capacity, 1024);
 #endif
+}
+
+void set_curr_capacity(int cpu, long capacity)
+{
+	atomic_long_set(&cpu_rq(cpu)->cfs.curr_capacity, capacity);
+}
+
+static inline unsigned long get_curr_capacity(int cpu)
+{
+	return atomic_long_read(&cpu_rq(cpu)->cfs.curr_capacity);
 }
 
 #ifdef CONFIG_FAIR_GROUP_SCHED

@@ -369,6 +369,8 @@ struct cfs_rq {
 	u64 last_decay;
 	atomic_long_t removed_load, uw_removed_load;
 
+	atomic_long_t curr_capacity;
+
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/* Required to track per-cpu representation of a task_group */
 	u32 tg_runnable_contrib;
