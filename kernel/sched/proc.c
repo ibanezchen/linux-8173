@@ -464,6 +464,7 @@ decay_load_missed(unsigned long load, unsigned long missed_updates, int idx)
  * every tick. We fix it up based on jiffies.
  */
 static void __update_cpu_load(struct rq *this_rq, unsigned long this_load,
+			      unsigned long uw_this_load,
 			      unsigned long pending_updates)
 {
 	int i, scale;
@@ -472,14 +473,20 @@ static void __update_cpu_load(struct rq *this_rq, unsigned long this_load,
 
 	/* Update our load: */
 	this_rq->cpu_load[0] = this_load; /* Fasttrack for idx 0 */
+	this_rq->uw_cpu_load[0] = uw_this_load; /* Fasttrack for idx 0 */
 	for (i = 1, scale = 2; i < CPU_LOAD_IDX_MAX; i++, scale += scale) {
-		unsigned long old_load, new_load;
+		unsigned long old_load, new_load, uw_old_load, uw_new_load;
 
 		/* scale is effectively 1 << i now, and >> i divides by scale */
 
 		old_load = this_rq->cpu_load[i];
 		old_load = decay_load_missed(old_load, pending_updates - 1, i);
 		new_load = this_load;
+
+		uw_old_load = this_rq->uw_cpu_load[i];
+		uw_old_load = decay_load_missed(uw_old_load,
+				pending_updates - 1, i);
+		uw_new_load = uw_this_load;
 		/*
 		 * Round up the averaging division if load is increasing. This
 		 * prevents us from getting stuck on 9 if the load is 10, for
@@ -487,8 +494,12 @@ static void __update_cpu_load(struct rq *this_rq, unsigned long this_load,
 		 */
 		if (new_load > old_load)
 			new_load += scale - 1;
+		if (uw_new_load > uw_old_load)
+			uw_new_load += scale - 1;
 
 		this_rq->cpu_load[i] = (old_load * (scale - 1) + new_load) >> i;
+		this_rq->uw_cpu_load[i] = (uw_old_load * (scale - 1) +
+						uw_new_load) >> i;
 	}
 
 	sched_avg_update(this_rq);
@@ -528,6 +539,7 @@ void update_idle_cpu_load(struct rq *this_rq)
 {
 	unsigned long curr_jiffies = ACCESS_ONCE(jiffies);
 	unsigned long load = get_rq_runnable_load(this_rq);
+	unsigned long uw_load = this_rq->cfs.uw_runnable_load_avg;
 	unsigned long pending_updates;
 
 	/*
@@ -539,7 +551,7 @@ void update_idle_cpu_load(struct rq *this_rq)
 	pending_updates = curr_jiffies - this_rq->last_load_update_tick;
 	this_rq->last_load_update_tick = curr_jiffies;
 
-	__update_cpu_load(this_rq, load, pending_updates);
+	__update_cpu_load(this_rq, load, uw_load, pending_updates);
 }
 
 /*
@@ -562,7 +574,7 @@ void update_cpu_load_nohz(void)
 		 * We were idle, this means load 0, the current load might be
 		 * !0 due to remote wakeups and the sort.
 		 */
-		__update_cpu_load(this_rq, 0, pending_updates);
+		__update_cpu_load(this_rq, 0, 0, pending_updates);
 	}
 	raw_spin_unlock(&this_rq->lock);
 }
@@ -574,11 +586,13 @@ void update_cpu_load_nohz(void)
 void update_cpu_load_active(struct rq *this_rq)
 {
 	unsigned long load = get_rq_runnable_load(this_rq);
+	unsigned long uw_load = this_rq->cfs.uw_runnable_load_avg;
+
 	/*
 	 * See the mess around update_idle_cpu_load() / update_cpu_load_nohz().
 	 */
 	this_rq->last_load_update_tick = jiffies;
-	__update_cpu_load(this_rq, load, 1);
+	__update_cpu_load(this_rq, load, uw_load, 1);
 
 	calc_load_account_active(this_rq);
 }

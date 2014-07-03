@@ -7365,8 +7365,10 @@ void __init sched_init(void)
 		init_tg_rt_entry(&root_task_group, &rq->rt, NULL, i, NULL);
 #endif
 
-		for (j = 0; j < CPU_LOAD_IDX_MAX; j++)
+		for (j = 0; j < CPU_LOAD_IDX_MAX; j++) {
 			rq->cpu_load[j] = 0;
+			rq->uw_cpu_load[j] = 0;
+		}
 
 		rq->last_load_update_tick = jiffies;
 
