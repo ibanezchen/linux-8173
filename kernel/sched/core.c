@@ -5718,6 +5718,7 @@ static void free_sched_domain(struct rcu_head *rcu)
 		free_sched_groups(sd->groups, 1);
 	} else if (atomic_dec_and_test(&sd->groups->ref)) {
 		kfree(sd->groups->sgc);
+		kfree(sd->groups->sge);
 		kfree(sd->groups);
 	}
 	kfree(sd);
@@ -5977,6 +5978,8 @@ static int get_group(int cpu, struct sd_data *sdd, struct sched_group **sg)
 		*sg = *per_cpu_ptr(sdd->sg, cpu);
 		(*sg)->sgc = *per_cpu_ptr(sdd->sgc, cpu);
 		atomic_set(&(*sg)->sgc->ref, 1); /* for claim_allocations */
+		(*sg)->sge = *per_cpu_ptr(sdd->sge, cpu);
+		atomic_set(&(*sg)->sge->ref, 1); /* for claim_allocations */
 	}
 
 	return cpu;
@@ -6064,6 +6067,28 @@ static void init_sched_groups_capacity(int cpu, struct sched_domain *sd)
 
 	update_group_capacity(sd, cpu);
 	atomic_set(&sg->sgc->nr_busy_cpus, sg->group_weight);
+}
+
+static void init_sched_energy(int cpu, struct sched_domain *sd,
+			      struct sched_domain_topology_level *tl)
+{
+	struct sched_group *sg = sd->groups;
+	struct sched_group_energy *energy = sg->sge;
+	sched_domain_energy_f fn = tl->energy;
+	struct cpumask *mask = sched_group_cpus(sg);
+
+	if (!fn || !fn(cpu))
+		return;
+
+	if (cpumask_weight(mask) > 1)
+		check_sched_energy_data(cpu, fn, mask);
+
+	energy->nr_idle_states = fn(cpu)->nr_idle_states;
+	memcpy(energy->idle_states, fn(cpu)->idle_states,
+	       energy->nr_idle_states*sizeof(struct idle_state));
+	energy->nr_cap_states = fn(cpu)->nr_cap_states;
+	memcpy(energy->cap_states, fn(cpu)->cap_states,
+	       energy->nr_cap_states*sizeof(struct capacity_state));
 }
 
 /*
@@ -6156,6 +6181,9 @@ static void claim_allocations(int cpu, struct sched_domain *sd)
 
 	if (atomic_read(&(*per_cpu_ptr(sdd->sgc, cpu))->ref))
 		*per_cpu_ptr(sdd->sgc, cpu) = NULL;
+
+	if (atomic_read(&(*per_cpu_ptr(sdd->sge, cpu))->ref))
+		*per_cpu_ptr(sdd->sge, cpu) = NULL;
 }
 
 #ifdef CONFIG_NUMA
@@ -6620,10 +6648,24 @@ static int __sdt_alloc(const struct cpumask *cpu_map)
 		if (!sdd->sgc)
 			return -ENOMEM;
 
+		sdd->sge = alloc_percpu(struct sched_group_energy *);
+		if (!sdd->sge)
+			return -ENOMEM;
+
 		for_each_cpu(j, cpu_map) {
 			struct sched_domain *sd;
 			struct sched_group *sg;
 			struct sched_group_capacity *sgc;
+			struct sched_group_energy *sge;
+			sched_domain_energy_f fn = tl->energy;
+			unsigned int nr_idle_states = 0;
+			unsigned int nr_cap_states = 0;
+
+			if (fn && fn(j)) {
+				nr_idle_states = fn(j)->nr_idle_states;
+				nr_cap_states = fn(j)->nr_cap_states;
+				BUG_ON(!nr_idle_states || !nr_cap_states);
+			}
 
 		       	sd = kzalloc_node(sizeof(struct sched_domain) + cpumask_size(),
 					GFP_KERNEL, cpu_to_node(j));
@@ -6647,6 +6689,26 @@ static int __sdt_alloc(const struct cpumask *cpu_map)
 				return -ENOMEM;
 
 			*per_cpu_ptr(sdd->sgc, j) = sgc;
+
+			sge = kzalloc_node(sizeof(struct sched_group_energy) +
+				nr_idle_states*sizeof(struct idle_state) +
+				nr_cap_states*sizeof(struct capacity_state),
+				GFP_KERNEL, cpu_to_node(j));
+
+			if (!sge)
+				return -ENOMEM;
+
+			sge->idle_states = (struct idle_state *)
+					   ((void *)&sge->cap_states +
+					    sizeof(sge->cap_states));
+
+			sge->cap_states = (struct capacity_state *)
+					  ((void *)&sge->cap_states +
+					   sizeof(sge->cap_states) +
+					   nr_idle_states*
+					   sizeof(struct idle_state));
+
+			*per_cpu_ptr(sdd->sge, j) = sge;
 		}
 	}
 
@@ -6675,6 +6737,8 @@ static void __sdt_free(const struct cpumask *cpu_map)
 				kfree(*per_cpu_ptr(sdd->sg, j));
 			if (sdd->sgc)
 				kfree(*per_cpu_ptr(sdd->sgc, j));
+			if (sdd->sge)
+				kfree(*per_cpu_ptr(sdd->sge, j));
 		}
 		free_percpu(sdd->sd);
 		sdd->sd = NULL;
@@ -6682,6 +6746,8 @@ static void __sdt_free(const struct cpumask *cpu_map)
 		sdd->sg = NULL;
 		free_percpu(sdd->sgc);
 		sdd->sgc = NULL;
+		free_percpu(sdd->sge);
+		sdd->sge = NULL;
 	}
 }
 
@@ -6767,10 +6833,13 @@ static int build_sched_domains(const struct cpumask *cpu_map,
 
 	/* Calculate CPU capacity for physical packages and nodes */
 	for (i = nr_cpumask_bits-1; i >= 0; i--) {
+		struct sched_domain_topology_level *tl = sched_domain_topology;
+
 		if (!cpumask_test_cpu(i, cpu_map))
 			continue;
 
-		for (sd = *per_cpu_ptr(d.sd, i); sd; sd = sd->parent) {
+		for (sd = *per_cpu_ptr(d.sd, i); sd; sd = sd->parent, tl++) {
+			init_sched_energy(i, sd, tl);
 			claim_allocations(i, sd);
 			init_sched_groups_capacity(i, sd);
 		}
