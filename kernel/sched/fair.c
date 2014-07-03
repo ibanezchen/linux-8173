@@ -4501,6 +4501,19 @@ static inline bool energy_aware(void)
 	return sched_feat(ENERGY_AWARE);
 }
 
+/*
+ * Returns the index of the most likely idle-state that the sched_group is in
+ * when idle. The index can be used to identify the idle-state in the
+ * sched_group_energy idle_states list.
+ *
+ * This is currently just a placeholder. The information needs to come from
+ * cpuidle.
+ */
+static inline int likely_idle_state_idx(struct sched_group *sg)
+{
+	return 0;
+}
+
 static int wake_wide(struct task_struct *p)
 {
 	int factor = this_cpu_read(sd_llc_size);
