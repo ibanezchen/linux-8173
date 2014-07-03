@@ -1141,6 +1141,7 @@ struct sched_avg {
 	u64 last_runnable_update;
 	s64 decay_count;
 	unsigned long load_avg_contrib;
+	unsigned long uw_load_avg_contrib;
 };
 
 #ifdef CONFIG_SCHEDSTATS

@@ -2578,6 +2578,8 @@ static inline u64 __synchronize_entity_decay(struct sched_entity *se)
 		return 0;
 
 	se->avg.load_avg_contrib = decay_load(se->avg.load_avg_contrib, decays);
+	se->avg.uw_load_avg_contrib = decay_load(se->avg.uw_load_avg_contrib,
+						 decays);
 	se->avg.decay_count = 0;
 
 	return decays;
@@ -2687,12 +2689,18 @@ static inline void __update_task_entity_contrib(struct sched_entity *se)
 	contrib = se->avg.runnable_avg_sum * scale_load_down(se->load.weight);
 	contrib /= (se->avg.runnable_avg_period + 1);
 	se->avg.load_avg_contrib = scale_load(contrib);
+
+	contrib = se->avg.runnable_avg_sum * scale_load_down(NICE_0_LOAD);
+	contrib /= (se->avg.runnable_avg_period + 1);
+	se->avg.uw_load_avg_contrib = scale_load(contrib);
 }
 
 /* Compute the current contribution to load_avg by se, return any delta */
-static long __update_entity_load_avg_contrib(struct sched_entity *se)
+static long __update_entity_load_avg_contrib(struct sched_entity *se,
+					     long *uw_contrib_delta)
 {
 	long old_contrib = se->avg.load_avg_contrib;
+	long uw_old_contrib = se->avg.uw_load_avg_contrib;
 
 	if (entity_is_task(se)) {
 		__update_task_entity_contrib(se);
@@ -2700,6 +2708,10 @@ static long __update_entity_load_avg_contrib(struct sched_entity *se)
 		__update_tg_runnable_avg(&se->avg, group_cfs_rq(se));
 		__update_group_entity_contrib(se);
 	}
+
+	if (uw_contrib_delta)
+		*uw_contrib_delta = se->avg.uw_load_avg_contrib -
+					uw_old_contrib;
 
 	return se->avg.load_avg_contrib - old_contrib;
 }
@@ -2720,7 +2732,7 @@ static inline void update_entity_load_avg(struct sched_entity *se,
 					  int update_cfs_rq)
 {
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
-	long contrib_delta;
+	long contrib_delta, uw_contrib_delta;
 	u64 now;
 
 	/*
@@ -2735,13 +2747,15 @@ static inline void update_entity_load_avg(struct sched_entity *se,
 	if (!__update_entity_runnable_avg(now, &se->avg, se->on_rq))
 		return;
 
-	contrib_delta = __update_entity_load_avg_contrib(se);
+	contrib_delta = __update_entity_load_avg_contrib(se, &uw_contrib_delta);
 
 	if (!update_cfs_rq)
 		return;
 
-	if (se->on_rq)
+	if (se->on_rq) {
 		cfs_rq->runnable_load_avg += contrib_delta;
+		cfs_rq->uw_runnable_load_avg += uw_contrib_delta;
+	}
 	else
 		subtract_blocked_load_contrib(cfs_rq, -contrib_delta);
 }
@@ -2818,6 +2832,8 @@ static inline void enqueue_entity_load_avg(struct cfs_rq *cfs_rq,
 	}
 
 	cfs_rq->runnable_load_avg += se->avg.load_avg_contrib;
+	cfs_rq->uw_runnable_load_avg += se->avg.uw_load_avg_contrib;
+
 	/* we force update consideration on load-balancer moves */
 	update_cfs_rq_blocked_load(cfs_rq, !wakeup);
 }
@@ -2836,6 +2852,8 @@ static inline void dequeue_entity_load_avg(struct cfs_rq *cfs_rq,
 	update_cfs_rq_blocked_load(cfs_rq, !sleep);
 
 	cfs_rq->runnable_load_avg -= se->avg.load_avg_contrib;
+	cfs_rq->uw_runnable_load_avg -= se->avg.uw_load_avg_contrib;
+
 	if (sleep) {
 		cfs_rq->blocked_load_avg += se->avg.load_avg_contrib;
 		se->avg.decay_count = atomic64_read(&cfs_rq->decay_counter);
