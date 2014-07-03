@@ -1,0 +1,439 @@
+Energy cost model for energy-aware scheduling (EXPERIMENTAL)
+
+Introduction
+=============
+
+The basic energy model uses platform energy data stored in sched_group_energy
+data structures attached to the sched_groups in the sched_domain hierarchy. The
+energy cost model offers three functions that can be used to guide scheduling
+decisions:
+
+1.	static int energy_diff_util(int cpu, int util, int wakeups)
+2.	static int energy_diff_task(int cpu, struct task_struct *p)
+3.	static int energy_diff_cpu(int dst_cpu, int src_cpu)
+
+All three of them return the energy cost delta caused by adding/removing
+utilization or a task to/from specific cpus. To be more precise:
+
+util: The signed utilization delta. That is, the amount of cpu utilization we
+want to add or remove from the cpu, basically how much more/less is the cpu
+expected to be busy. The current metric used to represent utilization is the
+actual per-entity runnable time averaged over time using a geometric series.
+Very similar to the existing per-entity load-tracking, but _not_ scaled by task
+priority. energy_diff_util() calculates the energy implications of
+adding/removing a specific amount of utilization (which could be the combined
+utilization of a number of tasks), while energy_diff_task() calculates the
+energy implications of adding a specific task to a specific cpu.
+
+wakeups: Represents the wakeups (task enqueues, not idle exits) caused by the
+utilization we are about to add/remove to/from the cpu. As with utilization,
+the wakeup rate is averaged over time using a geometric series. The energy
+model estimates (in a fairly naive way) the proportion of the wakeups that
+causes cpu wakeups (idle exits). This metric is particularly important for
+short but frequently running tasks as the wakeup cost (energy) for these can be
+substantial if placed on an idle cpu.
+
+Background and Terminology
+===========================
+
+To make it clear from the start:
+
+energy = [joule] (resource like a battery on powered devices)
+power = energy/time = [joule/second] = [watt]
+
+The goal of energy-aware scheduling is to minimize energy, while still getting
+the job done. That is, we want to maximize:
+
+	performance [inst/s]
+	--------------------
+	    power [W]
+
+which is equivalent to minimizing:
+
+	energy [J]
+	-----------
+	instruction
+
+while still getting 'good' performance. It is essentially an alternative
+optimization objective to the current performance-only objective for the
+scheduler. This alternative considers two objectives: energy-efficiency and
+performance. Hence, there needs to be a user controllable knob to switch the
+objective. Since it is early days, this is currently a sched_feature
+(ENERGY_AWARE).
+
+The idea behind introducing an energy cost model is to allow the scheduler to
+evaluate the implications of its decisions rather than applying energy-saving
+techniques blindly that may only have positive effects on some platforms. At
+the same time, the energy cost model must be as simple as possible to minimize
+the scheduler latency impact.
+
+Platform topology
+------------------
+
+The system topology (cpus, caches, and NUMA information, not peripherals) is
+represented in the scheduler by the sched_domain hierarchy which has
+sched_groups attached at each level that covers one or more cpus (see
+sched-domains.txt for more details). To add energy awareness to the scheduler
+we need to consider power and frequency domains.
+
+Power domain:
+
+A power domain is a part of the system that can be powered on/off
+independently. Power domains are typically organized in a hierarchy where you
+may be able to power down just a cpu or a group of cpus along with any
+associated resources (e.g.  shared caches). Powering up a cpu means that all
+power domains it is a part of in the hierarchy must be powered up. Hence, it is
+more expensive to power up the first cpu that belongs to a higher level power
+domain than powering up additional cpus in the same high level domain. Two
+level power domain hierarchy example:
+
+		Power source
+		         +-------------------------------+----...
+per group PD		 G                               G
+		         |           +----------+        |
+		    +--------+-------| Shared   |  (other groups)
+per-cpu PD	    G        G       | resource |
+		    |        |       +----------+
+		+-------+ +-------+
+		| CPU 0 | | CPU 1 |
+		+-------+ +-------+
+
+Frequency domain:
+
+Frequency domains (P-states) typically cover the same group of cpus as one of
+the power domain levels. That is, there might be several smaller power domains
+sharing the same frequency (P-state) or there might be a power domain spanning
+multiple frequency domains.
+
+From a scheduling point of view there is no need to know the actual frequencies
+[Hz]. All the scheduler cares about is the compute capacity available at the
+current state (P-state) the cpu is in and any other available states. For that
+reason, and to also factor in any cpu micro-architecture differences, compute
+capacity scaling states are called 'capacity states' in this document. For SMP
+systems this is equivalent to P-states. For mixed micro-architecture systems
+(like ARM big.LITTLE) it is P-states scaled according to the micro-architecture
+performance relative to the other cpus in the system.
+
+Energy modelling:
+------------------
+
+Due to the hierarchical nature of the power domains, the most obvious way to
+model energy costs is therefore to associate power and energy costs with
+domains (groups of cpus). Energy costs of shared resources are associated with
+the group of cpus that share the resources, only the cost of powering the
+cpu itself and any private resources (e.g. private L1 caches) is associated
+with the per-cpu groups (lowest level).
+
+For example, for an SMP system with per-cpu power domains and a cluster level
+(group of cpus) power domain we get the overall energy costs to be:
+
+	energy = energy_cluster + n * energy_cpu
+
+where 'n' is the number of cpus powered up and energy_cluster is the cost paid
+as soon as any cpu in the cluster is powered up.
+
+The power and frequency domains can naturally be mapped onto the existing
+sched_domain hierarchy and sched_groups by adding the necessary data to the
+existing data structures.
+
+The energy model considers energy consumption from three contributors (shown in
+the illustration below):
+
+1. Busy energy: Energy consumed while a cpu and the higher level groups that it
+belongs to are busy running tasks. Busy energy is associated with the state of
+the cpu, not an event. The time the cpu spends in this state varies. Thus, the
+most obvious platform parameter for this contribution is busy power
+(energy/time).
+
+2. Idle energy: Energy consumed while a cpu and higher level groups that it
+belongs to are idle (in a C-state). Like busy energy, idle energy is associated
+with the state of the cpu. Thus, the platform parameter for this contribution
+is idle power (energy/time).
+
+3. Wakeup energy: Energy consumed for a transition from an idle-state (C-state)
+to a busy state (P-state) and back again, that is, a full run->sleep->run cycle
+(they always come in pairs, transitions between idle-states are not modelled).
+This energy is associated with an event with a fixed duration (at least
+roughly). The most obvious platform parameter for this contribution is
+therefore wakeup energy. Wakeup energy is depicted by the areas under the power
+graph for the transition phases in the illustration.
+
+
+	Power
+	^
+	|            busy->idle             idle->busy
+	|            transition             transition
+	|
+	|                _                      __
+	|               / \                    /  \__________________
+	|______________/   \                  /
+	|                   \                /
+	|  Busy              \    Idle      /        Busy
+	|  low P-state        \____________/         high P-state
+	|
+	+------------------------------------------------------------> time
+
+Busy    |--------------|                          |-----------------|
+
+Wakeup                 |------|            |------|
+
+Idle                          |------------|
+
+
+The basic algorithm
+====================
+
+The basic idea is to determine the total energy impact when utilization is
+added or removed by estimating the impact at each level in the sched_domain
+hierarchy starting from the bottom (sched_group contains just a single cpu).
+The energy cost comes from three sources: busy time (sched_group is awake
+because one or more cpus are busy), idle time (in an idle-state), and wakeups
+(idle state exits). Power and energy numbers account for energy costs
+associated with all cpus in the sched_group as a group. In some cases it is
+possible to bail out early without having go to the top of the hierarchy if the
+additional/removed utilization doesn't affect the busy time of higher levels.
+
+	for_each_domain(cpu, sd) {
+		sg = sched_group_of(cpu)
+		energy_before = curr_util(sg) * busy_power(sg)
+				+ (1-curr_util(sg)) * idle_power(sg)
+		energy_after = new_util(sg) * busy_power(sg)
+				+ (1-new_util(sg)) * idle_power(sg)
+				+ (1-new_util(sg)) * wakeups * wakeup_energy(sg)
+		energy_diff += energy_before - energy_after
+
+		if (energy_before == energy_after)
+			break;
+	}
+
+	return energy_diff
+
+{curr, new}_util: The cpu utilization at the lowest level and the overall
+non-idle time for the entire group for higher levels. Utilization is in the
+range 0.0 to 1.0 in the pseudo-code.
+
+busy_power: The power consumption of the sched_group.
+
+idle_power: The power consumption of the sched_group when idle.
+
+wakeups: Average wakeup rate of the task(s) being added/removed. To predict how
+many of the wakeups are wakeups that causes idle exits we scale the number by
+the unused utilization (assuming that wakeups are uniformly distributed).
+
+wakeup_energy: The energy consumed for a run->sleep->run cycle for the
+sched_group.
+
+Note: It is a fundamental assumption that the utilization is (roughly) scale
+invariant. Task utilization tracking factors in any frequency scaling and
+performance scaling differences due to difference cpu microarchitectures such
+that task utilization can be used across the entire system. This is _not_ in
+place yet.
+
+Platform energy data
+=====================
+
+struct sched_group_energy can be attached to sched_groups in the sched_domain
+hierarchy and has the following members:
+
+cap_states:
+	List of struct capacity_state representing the supported capacity states
+	(P-states). struct capacity_state has two members: cap and power, which
+	represents the compute capacity and the busy_power of the state. The
+	list must be ordered by capacity low->high.
+
+nr_cap_states:
+	Number of capacity states in cap_states list.
+
+idle_states:
+	List of struct idle_state containing idle_state related costs for each
+	idle-state support by the sched_group. struct idle_state has two
+	members: power and wu_energy. The former is the idle-state power
+	consumption, while the latter is the wakeup energy for an
+	run->sleep->run cycle for that particular sched_group idle-state.
+	Note that the list should only contain idle-states where the affected
+	cpu matches the members of the sched_group. That is, per-cpu idle
+	states are associated with sched_groups at the lowest level, and
+	package/cluster idle-states are listed for sched_group's further up the
+	hierarchy.
+
+nr_idle_states:
+	Number of idle states in idle_states list.
+
+There are no unit requirements for the energy cost data. Data can be normalized
+with any reference, however, the normalization must be consistent across all
+energy cost data. That is, one bogo-joule/watt must be the same quantity for
+data, but we don't care what it is.
+
+A recipe for platform characterization
+=======================================
+
+Obtaining the actual model data for a particular platform requires some way of
+measuring power/energy. There isn't a tool to help with this (yet). This
+section provides a recipe for use as reference. It covers the steps used to
+characterize the ARM TC2 development platform. This sort of measurements is
+expected to be done anyway when tuning cpuidle and cpufreq for a given
+platform.
+
+The energy model needs three types of data (struct sched_group_energy holds
+these) for each sched_group where energy costs should be taken into account:
+
+1. Capacity state information
+
+A list containing the compute capacity and power consumption when fully
+utilized attributed to the group as a whole for each available capacity state.
+At the lowest level (group contains just a single cpu) this is the power of the
+cpu alone without including power consumed by resources shared with other cpus.
+It basically needs to fit the basic modelling approach described in "Background
+and Terminology" section:
+
+	energy_system = energy_shared + n * energy_cpu
+
+for a system containing 'n' busy cpus. Only 'energy_cpu' should be included at
+the lowest level. 'energy_shared' is included at the next level which
+represents the group of cpus among which the resources are shared.
+
+This model is, of course, a simplification of reality. Thus, power/energy
+attributions might not always exactly represent how the hardware is designed.
+Also, busy power is likely to depend on the workload. It is therefore
+recommended to use a representative mix of workloads when characterizing the
+capacity states.
+
+If the group has no capacity scaling support, the list will contain a single
+state where power is the busy power attributed to the group. The capacity
+should be set to a default value (1024).
+
+When frequency domains include multiple power domains, the group representing
+the frequency domain and all child groups share capacity states. This must be
+indicated by setting the SD_SHARE_CAP_STATES sched_domain flag. All groups at
+all levels that share the capacity state must have the list of capacity states
+with the power set to the contribution of the individual group.
+
+2. Idle power information
+
+The first member of idle-state information stored in the idle_states list. The
+power number is the group idle power consumption. Due to the way the energy
+model is defined, the idle power of the deepest group idle state can
+alternatively be accounted for in the parent group busy power. In that case the
+group idle state power values are offset such that the idle power of the
+deepest state is zero. It is less intuitive, but it is easier to measure as
+idle power consumed by the group and the busy/idle power of the parent group
+cannot be distinguished without per group measurement points.
+
+3. Wakeup energy information
+
+The second member of the idle-state information stored in the idle_states list.
+The wakeup energy is the total energy consumed during the transition from a
+specific idle state to busy (some P-state) and back again. It is not easy to
+measure them individually and they always occur in pairs anyway. Exit from one
+idle state and going back into a different one is not modelled.
+
+The energy model estimates wakeup energy based on the tracked average wakeup
+rate. Assuming that all task wakeups result in idle exits, the wakeup energy
+consumed per time unit (~ energy rate ~ power) is:
+
+	wakeup_energy_rate = wakeup_energy * wakeup_rate
+
+The wakeup_rate is a geometric series similar to the per entity load tracking.
+To simplify the math in the scheduler the wakeup_energy parameter must be
+pre-scaled to take the geometric series into account. wakeup_rate =
+LOAD_AVG_MAX (=47742) is equivalent to a true wakeup rate of 1000 wakeups per
+second. The wu_energy stored in each struct idle_state in the
+sched_group_energy data structure must therefore be scaled accordingly:
+
+	wakeup_energy = 1000/47742 * true_wakeup_energy
+
+Measuring capacity states and idle power:
+
+The capacity states' capacity and power can be estimated by running a benchmark
+workload at each available capacity state. By restricting the benchmark to run
+on subsets of cpus it is possible to extrapolate the power consumption of
+shared resources.
+
+ARM TC2 has two clusters of two and three cpus respectively. Each cluster has a
+shared L2 cache. TC2 has on-chip energy counters per cluster. Running a
+benchmark workload on just one cpu in a cluster means that power is consumed in
+the cluster (higher level group) and a single cpu (lowest level group). Adding
+another benchmark task to another cpu increases the power consumption by the
+amount consumed by the additional cpu. Hence, it is possible to extrapolate the
+cluster busy power.
+
+For platforms that don't have energy counters or equivalent instrumentation
+built-in, it may be possible to use an external DAQ to acquire similar data.
+
+If the benchmark includes some performance score (for example sysbench cpu
+benchmark), this can be used to record the compute capacity.
+
+Measuring idle power requires insight into the idle state implementation on the
+particular platform. Specifically, if the platform has coupled idle-states (or
+package states). To measure non-coupled per-cpu idle-states it is necessary to
+keep one cpu busy to keep any shared resources alive to isolate the idle power
+of the cpu from idle/busy power of the shared resources. The cpu can be tricked
+into different per-cpu idle states by disabling the other states. Based on
+various combinations of measurements with specific cpus busy and disabling
+idle-states it is possible to extrapolate the idle-state power.
+
+Measuring wakeup energy again requires knowledge about the supported platform
+idle-states, particularly about target residencies. Wakeup energy is a very
+small quantity that might be difficult to distinguish from noise. One way to
+measure it is to use a synthetic test case that periodically wakes up a task on
+a specific cpu. The task should immediately block/go to sleep again. The
+wake-up rate should be as high as the target residency for the idle-state
+allows. Based on cpuidle statistics and knowledge about coupled idle-states the
+wakeup energy can be determined.
+
+The following wakeup generator test was used for the ARM TC2 profiling.
+
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+volatile int busy_loops = 1;
+volatile useconds_t alarm_rate = 100000;
+
+void
+waste_time(int loops)
+{
+	int i;
+	int t = 0;
+	for (i=0;i<loops;i++)
+		t++;
+}
+
+/* The signal handler just clears the flag and re-enables itself. */
+void catch_alarm (int sig)
+{
+	waste_time(busy_loops);
+	signal(sig, catch_alarm);
+}
+
+int main(int argc, char **argv)
+{
+	if (argc != 3) {
+		printf("Usage: timerload <alarm_rate> <busy_loops>\n");
+		printf("alarm_rate:\tBusy loop invocation rate [us]. ");
+		printf("(Doesn't work for rate >= 1s)\n");
+		printf("busy_loops:\tbusy loop iterations per invocation.\n");
+		exit(0);
+	}
+
+	if (atoi(argv[1]) >= 1000000){
+		printf("alarm_rate must be less than 1000000\n");
+	}
+
+	alarm_rate = (useconds_t) atoi(argv[1]);
+	busy_loops = atoi(argv[2]);
+	printf("alarm_rate = %d\nbusy_loops = %d\n",alarm_rate,busy_loops);
+
+	/* Establish a handler for SIGALRM signals. */
+	signal(SIGALRM, catch_alarm);
+
+	/* Set an alarm to go off in a little while. */
+	ualarm(alarm_rate,alarm_rate);
+
+	while (1) {
+		pause();
+	}
+
+	return EXIT_SUCCESS;
+}
