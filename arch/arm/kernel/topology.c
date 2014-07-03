@@ -386,6 +386,11 @@ static inline const struct sched_group_energy *cpu_core_energy(int cpu)
 			&energy_core_a15;
 }
 
+static inline const struct sched_group_energy *cpu_sys_energy(int cpu)
+{
+	return NULL;
+}
+
 static inline int cpu_corepower_flags(void)
 {
 	return SD_SHARE_PKG_RESOURCES  | SD_SHARE_POWERDOMAIN;
@@ -396,7 +401,7 @@ static struct sched_domain_topology_level arm_topology[] = {
 	{ cpu_coregroup_mask, cpu_corepower_flags, cpu_core_energy, SD_INIT_NAME(MC) },
 #endif
 	{ cpu_cpu_mask, 0, cpu_cluster_energy, SD_INIT_NAME(DIE) },
-	{ NULL, },
+	{ NULL,	0, cpu_sys_energy},
 };
 
 /*

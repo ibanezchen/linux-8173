@@ -6132,19 +6132,43 @@ static void init_sched_groups_capacity(int cpu, struct sched_domain *sd)
 	atomic_set(&sg->sgc->nr_busy_cpus, sg->group_weight);
 }
 
+/* System-wide energy information. */
+struct sched_group_energy *sse;
+
 static void init_sched_energy(int cpu, struct sched_domain *sd,
 			      struct sched_domain_topology_level *tl)
 {
-	struct sched_group *sg = sd->groups;
-	struct sched_group_energy *energy = sg->sge;
+	struct sched_group *sg = sd ? sd->groups : NULL;
+	struct sched_group_energy *energy = sd ? sg->sge : sse;
 	sched_domain_energy_f fn = tl->energy;
-	struct cpumask *mask = sched_group_cpus(sg);
+	const struct cpumask *mask = sd ? sched_group_cpus(sg) :
+					  cpu_cpu_mask(cpu);
 
-	if (!fn || !fn(cpu))
+	if (!fn || !fn(cpu) || (!sd && energy))
 		return;
 
 	if (cpumask_weight(mask) > 1)
 		check_sched_energy_data(cpu, fn, mask);
+
+	if (!sd) {
+		energy = sse = kzalloc(sizeof(struct sched_group_energy) +
+				       fn(cpu)->nr_idle_states*
+				       sizeof(struct idle_state) +
+				       fn(cpu)->nr_cap_states*
+				       sizeof(struct capacity_state),
+				       GFP_KERNEL);
+		BUG_ON(!energy);
+
+		energy->idle_states = (struct idle_state *)
+				      ((void *)&energy->cap_states +
+				       sizeof(energy->cap_states));
+
+		energy->cap_states = (struct capacity_state *)
+				     ((void *)&energy->cap_states +
+				      sizeof(energy->cap_states) +
+				      fn(cpu)->nr_idle_states*
+				      sizeof(struct idle_state));
+	}
 
 	energy->nr_idle_states = fn(cpu)->nr_idle_states;
 	memcpy(energy->idle_states, fn(cpu)->idle_states,
@@ -6906,6 +6930,8 @@ static int build_sched_domains(const struct cpumask *cpu_map,
 			claim_allocations(i, sd);
 			init_sched_groups_capacity(i, sd);
 		}
+
+		init_sched_energy(i, NULL, tl);
 	}
 
 	/* Attach the domains */

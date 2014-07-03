@@ -800,6 +800,8 @@ struct sched_group_capacity {
 	unsigned long cpumask[0]; /* iteration mask */
 };
 
+extern struct sched_group_energy *sse;
+
 struct sched_group {
 	struct sched_group *next;	/* Must be a circular list */
 	atomic_t ref;
