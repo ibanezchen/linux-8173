@@ -5003,9 +5003,19 @@ find_idlest_cpu(struct sched_group *group, struct task_struct *p, int this_cpu)
  */
 static int select_idle_sibling(struct task_struct *p, int target)
 {
-	struct sched_domain *sd;
+	struct sched_domain *sd = NULL, *tmp;
 	struct sched_group *sg;
 	int i = task_cpu(p);
+	int target_nrg;
+	int nrg_min, nrg_cpu = -1;
+
+	if (energy_aware()) {
+		/* When energy-aware, go above sd_llc */
+		for_each_domain(target, tmp)
+			sd = tmp;
+
+		goto loop;
+	}
 
 	if (idle_cpu(target))
 		return target;
@@ -5020,6 +5030,10 @@ static int select_idle_sibling(struct task_struct *p, int target)
 	 * Otherwise, iterate the domains and find an elegible idle cpu.
 	 */
 	sd = rcu_dereference(per_cpu(sd_llc, target));
+
+loop:
+	target_nrg = nrg_min = energy_diff_task(target, p);
+
 	for_each_lower_domain(sd) {
 		sg = sd->groups;
 		do {
@@ -5028,16 +5042,35 @@ static int select_idle_sibling(struct task_struct *p, int target)
 				goto next;
 
 			for_each_cpu(i, sched_group_cpus(sg)) {
+				int nrg_diff;
+				if (energy_aware()) {
+					if (!idle_cpu(i))
+						continue;
+
+					nrg_diff = energy_diff_task(i, p);
+					if (nrg_diff < nrg_min) {
+						nrg_min = nrg_diff;
+						nrg_cpu = i;
+					}
+				}
+
 				if (i == target || !idle_cpu(i))
 					goto next;
 			}
 
-			target = cpumask_first_and(sched_group_cpus(sg),
-					tsk_cpus_allowed(p));
-			goto done;
+			if (!energy_aware()) {
+				target = cpumask_first_and(sched_group_cpus(sg),
+						tsk_cpus_allowed(p));
+				goto done;
+			}
 next:
 			sg = sg->next;
 		} while (sg != sd->groups);
+
+		if (nrg_cpu >= 0) {
+			target = nrg_cpu;
+			goto done;
+		}
 	}
 done:
 	return target;
