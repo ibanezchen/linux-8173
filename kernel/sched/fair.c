@@ -2781,9 +2781,11 @@ static void update_cfs_rq_blocked_load(struct cfs_rq *cfs_rq, int force_update)
 		return;
 
 	if (atomic_long_read(&cfs_rq->removed_load)) {
-		unsigned long removed_load;
+		unsigned long removed_load, uw_removed_load;
 		removed_load = atomic_long_xchg(&cfs_rq->removed_load, 0);
-		subtract_blocked_load_contrib(cfs_rq, removed_load, 0);
+		uw_removed_load = atomic_long_xchg(&cfs_rq->uw_removed_load, 0);
+		subtract_blocked_load_contrib(cfs_rq, removed_load,
+					      uw_removed_load);
 	}
 
 	if (decays) {
@@ -4856,6 +4858,8 @@ migrate_task_rq_fair(struct task_struct *p, int next_cpu)
 		se->avg.decay_count = -__synchronize_entity_decay(se);
 		atomic_long_add(se->avg.load_avg_contrib,
 						&cfs_rq->removed_load);
+		atomic_long_add(se->avg.uw_load_avg_contrib,
+						&cfs_rq->uw_removed_load);
 	}
 
 	/* We have migrated, no longer consider this task hot */
@@ -7914,6 +7918,7 @@ void init_cfs_rq(struct cfs_rq *cfs_rq)
 #ifdef CONFIG_SMP
 	atomic64_set(&cfs_rq->decay_counter, 1);
 	atomic_long_set(&cfs_rq->removed_load, 0);
+	atomic_long_set(&cfs_rq->uw_removed_load, 0);
 #endif
 }
 
