@@ -316,7 +316,13 @@ static void __cpufreq_notify_transition(struct cpufreq_policy *policy,
 		pr_debug("FREQ: %lu - CPU: %lu\n",
 			 (unsigned long)freqs->new, (unsigned long)freqs->cpu);
 		trace_cpu_frequency(freqs->new, freqs->cpu);
-		set_curr_capacity(freqs->cpu, (freqs->new*1024)/policy->max);
+		/* Massive TC2 hack */
+		if (freqs->cpu == 0 || freqs->cpu == 1)
+			/* A15 cpus (max_capacity = 2015) */
+			set_curr_capacity(freqs->cpu, (freqs->new*2015)/1200000);
+		else
+			/* A7 cpus (nax_capacity = 1024) */
+			set_curr_capacity(freqs->cpu, (freqs->new*1024)/1000000);
 		srcu_notifier_call_chain(&cpufreq_transition_notifier_list,
 				CPUFREQ_POSTCHANGE, freqs);
 		if (likely(policy) && likely(policy->cpu == freqs->cpu))
