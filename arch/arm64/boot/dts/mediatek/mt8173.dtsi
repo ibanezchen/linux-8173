@@ -14,6 +14,7 @@
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include "mt8173-pinfunc.h"
+#include <dt-bindings/clock/mt8173-clk.h>
 
 / {
 	compatible = "mediatek,mt8173";
@@ -81,6 +82,26 @@
 		cpu_on	      = <0x84000003>;
 	};
 
+	clocks {
+		clk_null: clk_null {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <0>;
+		};
+
+		clk26m: clk26m {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <26000000>;
+		};
+
+		clk32k: clk32k {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <32000>;
+		};
+	};
+
 	uart_clk: dummy26m {
 		compatible = "fixed-clock";
 		clock-frequency = <26000000>;
@@ -125,12 +146,36 @@
 						<GIC_SPI 147 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
+		topckgen: topckgen@10000000 {
+			compatible = "mediatek,mt8173-topckgen";
+			reg = <0 0x10000000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		infrasys: infrasys@10001000 {
+			compatible = "mediatek,mt8173-infrasys";
+			reg = <0 0x10001000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		pericfg: pericfg@10003000 {
+			compatible = "mediatek,mt8173-pericfg";
+			reg = <0 0x10003000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
 		sysirq: intpol-controller@10200620 {
 			compatible = "mediatek,mt8173-sysirq", "mediatek,mt6577-sysirq";
 			interrupt-controller;
 			#interrupt-cells = <3>;
 			interrupt-parent = <&gic>;
 			reg = <0 0x10200620 0 0x20>;
+		};
+
+		apmixedsys: apmixedsys@10209000 {
+			compatible = "mediatek,mt8173-apmixedsys";
+			reg = <0 0x10209000 0 0x1000>;
+			#clock-cells = <1>;
 		};
 
 		gic: interrupt-controller@10220000 {
