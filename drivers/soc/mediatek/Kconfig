@@ -10,3 +10,13 @@ config MTK_INFRACFG
 	  contains several miscellaneous registers for clock, reset and bus
 	  settings. Say yes here if you want to run your kernel on one of these
 	  SoCs.
+
+config MTK_PERICFG
+	tristate "MediaTek pericfg controller support"
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	select REGMAP
+	help
+	  The MediaTek pericfg controller found on MT8135 and MT8173 SoCs
+	  contains several miscellaneous registers for clock, reset and bus
+	  settings. Say yes here if you want to run your kernel on one of these
+	  SoCs.

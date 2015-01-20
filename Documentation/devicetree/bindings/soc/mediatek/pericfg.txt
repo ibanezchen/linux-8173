@@ -1,0 +1,19 @@
+MediaTek pericfg Controller
+
+The pericfg controller contains miscellaneous registers for controlling
+clocks, resets and bus settings.
+
+Required properties:
+- compatible: must be one of:
+	mediatek,mt8135-pericfg
+	mediatek,mt8173-pericfg
+- reg: Address range for the pericfg controller
+
+Example:
+
+	pericfg: pericfg@10003000 {
+		#reset-cells = <1>;
+		#clock-cells = <1>;
+		compatible = "mediatek,mt8135-pericfg";
+		reg = <0 0x10003000 0 0x1000>;
+	};
