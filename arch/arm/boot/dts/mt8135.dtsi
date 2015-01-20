@@ -15,6 +15,7 @@
 #include <dt-bindings/clock/mt8135-clk.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/reset-controller/mt8135-resets.h>
 #include "skeleton64.dtsi"
 #include "mt8135-pinfunc.h"
 
@@ -153,6 +154,8 @@
 		infracfg: infracfg@10001000 {
 			#address-cells = <1>;
 			#size-cells = <1>;
+			#reset-cells = <1>;
+			#clock-cells = <1>;
 			compatible = "mediatek,mt8135-infracfg";
 			reg = <0 0x10001000 0 0x1000>;
 			#clock-cells = <1>;
@@ -161,9 +164,24 @@
 		pericfg: pericfg@10003000 {
 			#address-cells = <1>;
 			#size-cells = <1>;
+			#reset-cells = <1>;
+			#clock-cells = <1>;
 			compatible = "mediatek,mt8135-pericfg";
 			reg = <0 0x10003000 0 0x1000>;
 			#clock-cells = <1>;
+		};
+
+		pwrap: pwrap@1000f000 {
+			compatible = "mediatek,mt8135-pwrap";
+			reg = <0 0x1000f000 0 0x1000>,
+				<0 0x11017000 0 0x1000>;
+			reg-names = "pwrap-base", "pwrap-bridge-base";
+			interrupts = <GIC_SPI 128 IRQ_TYPE_LEVEL_HIGH>;
+			resets = <&infracfg MT8135_INFRA_PMIC_WRAP_RST>,
+					<&pericfg MT8135_PERI_PWRAP_BRIDGE_SW_RST>;
+			reset-names = "pwrap", "pwrap-bridge";
+			clocks = <&clk_26m>, <&clk_26m>;
+			clock-names = "spi", "wrap";
 		};
 
 		timer: timer@10008000 {
