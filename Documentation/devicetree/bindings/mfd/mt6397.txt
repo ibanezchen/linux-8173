@@ -10,45 +10,40 @@ MT6397 is a multifunction device with the following sub modules:
 It is interfaced to host controller using SPI interface by a proprietary hardware
 called PMIC wrapper or pwrap. MT6397 MFD is a child device of pwrap.
 See the following for pwarp node definitions:
-Documentation/devicetree/bindings/soc/mediatek,mt8135-pwrap.txt
+Documentation/devicetree/bindings/soc/pwrap.txt
 
 This document describes the binding for mfd device and its sub module.
 
 Required properties:
 compatible: "mediatek,mt6397"
 
-Optional properties:
-- codec: Audio codec
-- pinctrl: GPIO in mt6397
-- rtc: RTC
-- clock: clocks in mt6397
-- regulators: regulators in mt6397
+Optional subnodes:
+
+- rtc:
+	Required properties:
+		- compatible: "mediatek,mt6397-rtc",
+- regulators
+	Required properties:
+		- compatible: "mediatek,mt6397-regulator",
+	see Documentation/devicetree/bindings/regulator/mt6397-regulator.txt
+- codec
+	Required properties:
+		- compatible: "mediatek,mt6397-codec",
+- clk
+	Required properties:
+		- compatible: "mediatek,mt6397-clk",
 
 Example:
 	pwrap: pwrap@1000f000 {
 		compatible = "mediatek,mt8135-pwrap";
-		reg = <0 0x1000f000 0 0x1000>,
-			<0 0x11017000 0 0x1000>;
-		reg-names = "pwrap-base", "pwrap-bridge-base";
-		interrupts = <GIC_SPI 128 IRQ_TYPE_LEVEL_HIGH>;
-		resets = <&infrarst MT8135_INFRA_PMIC_WRAP_RST>,
-				<&perirst MT8135_PERI_PWRAP_BRIDGE_SW_RST>;
-		reset-names = "infra-pwrap-rst",
-				"peri-pwrap-bridge-rst";
-		clocks = <&pmicspi_sel>, <&clk26m>;
-		clock-names = "pmicspi-sel", "pmicspi-parent";
+
+		...
 
 		pmic {
 			compatible = "mediatek,mt6397";
 
 			codec: mt6397codec {
 				compatible = "mediatek,mt6397-codec";
-			};
-
-			pinctrl@0x0000C000 {
-				compatible = "mediatek,mt6397-pinctrl";
-				reg = <0 0x0000C000 0 0x0108>;
-				gpio-controller;
 			};
 
 			mt6397regulator: mt6397regulator {
