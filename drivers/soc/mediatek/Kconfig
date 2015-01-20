@@ -1,0 +1,12 @@
+#
+# MediaTek SoC drivers
+#
+config MTK_INFRACFG
+	tristate "MediaTek infracfg controller support"
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	select REGMAP
+	help
+	  The MediaTek infracfg controller found on MT8135 and MT8173 SoCs
+	  contains several miscellaneous registers for clock, reset and bus
+	  settings. Say yes here if you want to run your kernel on one of these
+	  SoCs.

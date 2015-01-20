@@ -1,0 +1,19 @@
+MediaTek infracfg Controller
+
+The infracfg controller contains miscellaneous registers for controlling
+clocks, resets and bus settings.
+
+Required properties:
+- compatible: must be one of:
+	mediatek,mt8135-infracfg
+	mediatek,mt8173-infracfg
+- reg: Address range for the infracfg controller
+
+Example:
+
+	infracfg: infracfg@10003000 {
+		#reset-cells = <1>;
+		#clock-cells = <1>;
+		compatible = "mediatek,mt8135-infracfg";
+		reg = <0 0x10003000 0 0x1000>;
+	};
