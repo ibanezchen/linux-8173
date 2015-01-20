@@ -20,3 +20,12 @@ config MTK_PERICFG
 	  contains several miscellaneous registers for clock, reset and bus
 	  settings. Say yes here if you want to run your kernel on one of these
 	  SoCs.
+
+config MTK_PMIC_WRAP
+	tristate "MediaTek PMIC Wrapper Support"
+	depends on ARCH_MEDIATEK
+	select REGMAP
+	help
+	  Say yes here to add support for MediaTek PMIC Wrapper found
+	  on the MT8135 and MT8173 SoCs. The PMIC wrapper is a proprietary
+	  hardware to connect the PMIC.
