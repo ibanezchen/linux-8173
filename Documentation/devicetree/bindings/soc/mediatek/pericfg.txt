@@ -1,0 +1,29 @@
+MediaTek pericfg Controller
+===========================
+
+The pericfg controller contains miscellaneous registers for controlling
+clocks, resets and bus settings.
+
+Required properties:
+- compatible: must be one of:
+	mediatek,mt8135-pericfg
+	mediatek,mt8173-pericfg
+- reg: Address range for the pericfg controller
+- #reset-cells: 1, see below
+
+Specifying reset lines connected to the pericfg controller
+==========================================================
+
+The infracfg controller provides various reset sources to other modules.
+Device nodes using these reset sources should specify the reset lines in
+a property containing a phandle to the infracfg node and a reset index.
+See include/dt-bindings/reset-controller/<soc>-resets.h for a list of valid
+indices.
+
+Example:
+
+	pericfg: pericfg@10003000 {
+		#reset-cells = <1>;
+		compatible = "mediatek,mt8135-pericfg";
+		reg = <0 0x10003000 0 0x1000>;
+	};
