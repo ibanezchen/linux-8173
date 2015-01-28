@@ -1,0 +1,29 @@
+MediaTek infracfg Controller
+============================
+
+The infracfg controller contains miscellaneous registers for controlling
+clocks, resets and bus settings.
+
+Required properties:
+- compatible: must be one of:
+	mediatek,mt8135-infracfg
+	mediatek,mt8173-infracfg
+- reg: Address range for the infracfg controller
+- #reset-cells: 1, see below
+
+Specifying reset lines connected to the infracfg controller
+===========================================================
+
+The infracfg controller provides various reset sources to other modules.
+Device nodes using these reset sources should specify the reset lines in
+a property containing a phandle to the infracfg node and a reset index.
+See include/dt-bindings/reset-controller/<soc>-resets.h for a list of valid
+indices.
+
+Example:
+
+	infracfg: infracfg@10001000 {
+		#reset-cells = <1>;
+		compatible = "mediatek,mt8135-infracfg";
+		reg = <0 0x10001000 0 0x1000>;
+	};
