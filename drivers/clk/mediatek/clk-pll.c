@@ -50,6 +50,7 @@ struct clk *mtk_clk_register_pll(
 	pll->hw.init = &init;
 
 	init.name = name;
+	init.flags = CLK_IGNORE_UNUSED;
 	init.ops = ops;
 	init.parent_names = &parent_name;
 	init.num_parents = 1;

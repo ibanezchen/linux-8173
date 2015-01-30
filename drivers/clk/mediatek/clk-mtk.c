@@ -33,7 +33,7 @@ void mtk_init_factors(struct mtk_fixed_factor *clks, int num,
 		struct mtk_fixed_factor *ff = &clks[i];
 
 		clk = clk_register_fixed_factor(NULL, ff->name, ff->parent_name,
-				CLK_SET_RATE_PARENT, ff->mult, ff->div);
+				0, ff->mult, ff->div);
 
 		if (IS_ERR(clk)) {
 			pr_err("Failed to register clk %s: %ld\n",
@@ -143,7 +143,7 @@ struct clk *mtk_clk_register_mux(
 		&mux->hw, &clk_mux_ops,
 		NULL, NULL,
 		gate_hw, gate_ops,
-		CLK_SET_RATE_PARENT);
+		CLK_IGNORE_UNUSED);
 
 	if (IS_ERR(clk)) {
 		kfree(gate);
