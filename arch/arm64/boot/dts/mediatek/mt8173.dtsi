@@ -13,6 +13,7 @@
 
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/reset-controller/mt8173-resets.h>
 #include "mt8173-pinfunc.h"
 #include <dt-bindings/clock/mt8173-clk.h>
 
@@ -152,16 +153,18 @@
 			#clock-cells = <1>;
 		};
 
-		infrasys: infrasys@10001000 {
-			compatible = "mediatek,mt8173-infrasys";
+		infracfg: infracfg@10001000 {
+			compatible = "mediatek,mt8173-infracfg";
 			reg = <0 0x10001000 0 0x1000>;
 			#clock-cells = <1>;
+			#reset-cells = <1>;
 		};
 
 		pericfg: pericfg@10003000 {
 			compatible = "mediatek,mt8173-pericfg";
 			reg = <0 0x10003000 0 0x1000>;
 			#clock-cells = <1>;
+			#reset-cells = <1>;
 		};
 
 		sysirq: intpol-controller@10200620 {
@@ -170,6 +173,17 @@
 			#interrupt-cells = <3>;
 			interrupt-parent = <&gic>;
 			reg = <0 0x10200620 0 0x20>;
+		};
+
+		pwrap: pwrap@1000D000 {
+			compatible = "mediatek,mt8173-pwrap";
+			reg = <0 0x1000D000 0 0x1000>;
+			reg-names = "pwrap-base";
+			interrupts = <GIC_SPI 153 IRQ_TYPE_LEVEL_HIGH>;
+			resets = <&infracfg MT8173_INFRA_PMIC_WRAP_RST>;
+			reset-names = "pwrap";
+			clocks = <&infracfg INFRA_PMICSPI>, <&infracfg INFRA_PMICWRAP>;
+			clock-names = "spi", "wrap";
 		};
 
 		apmixedsys: apmixedsys@10209000 {
