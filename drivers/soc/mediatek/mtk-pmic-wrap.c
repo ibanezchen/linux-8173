@@ -914,7 +914,7 @@ static int pwrap_probe(struct platform_device *pdev)
 	wrp->arb_en_all = type->arb_en_all;
 	wrp->dev = &pdev->dev;
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pwrap");
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pwrap-base");
 	wrp->base = devm_ioremap_resource(wrp->dev, res);
 	if (IS_ERR(wrp->base))
 		return PTR_ERR(wrp->base);
@@ -928,7 +928,7 @@ static int pwrap_probe(struct platform_device *pdev)
 
 	if (pwrap_is_mt8135(wrp)) {
 		res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
-				"pwrap-bridge");
+				"pwrap-bridge-base");
 		wrp->bridge_base = devm_ioremap_resource(wrp->dev, res);
 		if (IS_ERR(wrp->bridge_base))
 			return PTR_ERR(wrp->bridge_base);
