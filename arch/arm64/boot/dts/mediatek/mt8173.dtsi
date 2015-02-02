@@ -237,7 +237,7 @@
 			compatible = "mediatek,mt8173-mmc","mediatek,mt8135-mmc";
 			reg = <0 0x11230000 0 0x108>;
 			interrupts = <0 71 IRQ_TYPE_LEVEL_LOW>;
-			clocks = <&perisys PERI_MSDC30_0>;
+			clocks = <&pericfg PERI_MSDC30_0>;
 			clock-names = "source";
 			status = "disabled";
 		};
@@ -246,7 +246,7 @@
 			compatible = "mediatek,mt8173-mmc","mediatek,mt8135-mmc";
 			reg = <0 0x11240000 0 0x108>;
 			interrupts = <0 72 IRQ_TYPE_LEVEL_LOW>;
-			clocks = <&perisys PERI_MSDC30_1>;
+			clocks = <&pericfg PERI_MSDC30_1>;
 			clock-names = "source";
 			status = "disabled";
 		};
